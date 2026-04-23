@@ -16,8 +16,17 @@ app.get("/", (req, res) => {
 app.post("/chat", async (req, res) => {
   try {
     const userMessage = req.body.message;
+    const messagesFromFrontend = req.body.messages;
 
-    if (!userMessage) {
+    // 🧠 If full chat history is provided → use it
+    let messages = [];
+
+    if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
+      messages = messagesFromFrontend;
+    } else if (userMessage) {
+      // fallback (old method)
+      messages = [{ role: "user", content: userMessage }];
+    } else {
       return res.status(400).json({ error: "Message required" });
     }
 
@@ -43,10 +52,7 @@ Rules:
 - Be caring and conversational.
             `,
           },
-          {
-            role: "user",
-            content: userMessage,
-          },
+          ...messages // ✅ FULL CHAT HISTORY HERE
         ],
       },
       {
