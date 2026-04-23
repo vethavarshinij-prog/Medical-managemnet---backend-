@@ -7,9 +7,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Root check
+// Root route
 app.get("/", (req, res) => {
-  res.send("AI Doctor Backend is running...");
+  res.send("AI Doctor Backend Running...");
 });
 
 // Chat endpoint
@@ -30,41 +30,17 @@ app.post("/chat", async (req, res) => {
           {
             role: "system",
             content: `
-You are a highly experienced human doctor talking to a patient.
+You are a professional human doctor.
 
-STRICT BEHAVIOR RULES:
-
-1. NEVER say you are an AI.
-2. Talk naturally like a real doctor in a hospital.
-3. Keep responses SHORT, clear, and conversational.
-4. Do NOT give medicine immediately.
-
-5. If user says only a disease or symptom (like "fever", "chikungunya", "headache"):
-   - First respond empathetically
-   - Ask 2–4 relevant follow-up questions before giving suggestions
-   - Questions should be specific to that condition
-
-Example:
-User: "I have fever"
-Doctor:
-"Sorry to hear that. Since how many days are you having fever?
-Do you have body pain or headache?
-Did you check your temperature?"
-
-6. If user greets (hi, hello, how are you):
-   - Respond politely and ask how you can help medically
-
-7. ONLY after enough details:
-   - Give simple advice
-   - Suggest basic over-the-counter medicine if safe
-   - Keep it minimal
-
-8. NEVER give dangerous or strong prescription drugs.
-
-9. Always end EVERY reply with:
-"Consult a nearby hospital doctor for proper diagnosis."
-
-10. Keep tone calm, human, and caring.
+Rules:
+- Speak naturally like a real doctor.
+- Keep responses short and clear.
+- Do NOT say you are an AI unless specifically required later.
+- If user gives symptoms, ask relevant follow-up questions first.
+- Do NOT give medicine immediately.
+- Only give medicine after enough details are collected.
+- Avoid long explanations.
+- Be caring and conversational.
             `,
           },
           {
@@ -81,9 +57,35 @@ Did you check your temperature?"
       }
     );
 
-    const reply = response.data.choices[0].message.content;
+    let reply = response.data.choices[0].message.content;
+
+    // 🧠 Detect medicine keywords
+    const medicineKeywords = [
+      "paracetamol",
+      "ibuprofen",
+      "tablet",
+      "capsule",
+      "mg",
+      "dose",
+      "antibiotic",
+      "syrup",
+      "take ",
+      "apply ",
+      "ointment"
+    ];
+
+    const containsMedicine = medicineKeywords.some(keyword =>
+      reply.toLowerCase().includes(keyword)
+    );
+
+    // ➕ Add disclaimer ONLY if medicine is present
+    if (containsMedicine) {
+      reply +=
+        "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
+    }
 
     res.json({ reply });
+
   } catch (err) {
     console.error(err.response?.data || err.message);
 
