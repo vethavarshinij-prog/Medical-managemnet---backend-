@@ -18,106 +18,74 @@ app.post("/chat", async (req, res) => {
     const userMessage = req.body.message;
     const messagesFromFrontend = req.body.messages;
 
+    // 🧠 If full chat history is provided → use it
     let messages = [];
 
-    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
+      // fallback (old method)
       messages = [{ role: "user", content: userMessage }];
     } else {
       return res.status(400).json({ error: "Message required" });
     }
 
-    if (!process.env.SAMBANOVA_API_KEY) {
-      return res.json({
-        reply: "Server configuration issue. Please try again later.",
-      });
-    }
-
-    let aiResponse;
-    let attempts = 0;
-
-    // 🔁 Retry logic (2 attempts)
-    while (attempts < 2) {
-      try {
-        aiResponse = await axios.post(
-          "https://api.sambanova.ai/v1/chat/completions",
+    const response = await axios.post(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
+        model: "Llama-4-Maverick-17B-128E-Instruct",
+        stream: false,
+        messages: [
           {
-            model: "Meta-Llama-3-8B-Instruct", // ✅ FIXED MODEL
-            max_tokens: 500,
-            temperature: 0.7,
-            stream: false,
-            messages: [
-              {
-                role: "system",
-                content: `
-You are a professional human doctor named Dr. Vetha Varshini.
+            role: "system",
+            content: `
+You are a professional human doctor.
 
-STRICT FLOW:
-
-1. Always behave like a real doctor.
-
-2. If user asks your name:
-   - Say: "My name is Dr. Vetha Varshini."
-
-3. If user mentions common problems like:
-   fever, cold, cough, throat pain, dysentery
-
-   FOLLOW THIS ORDER:
-   - Say empathy: "Sorry to hear that..."
-   - Give 2–3 home remedies
-   - Ask 2–3 follow-up questions
-
-4. DO NOT give medicine immediately.
-
-5. Only after enough details → suggest medicine.
-
-6. If you mention medicine → add [MEDICINE] at the end.
-
-7. Keep answers short, caring, natural.
-
-8. Never restart conversation.
-                `,
-              },
-              ...messages,
-            ],
+Rules:
+* Speak naturally like a real doctor.
+* Keep responses short and clear.
+* Do NOT say you are an AI unless specifically required later.
+* If user gives symptoms, ask relevant follow-up questions first.
+* Do NOT give medicine immediately.
+* Only give medicine after enough details are collected.
+* Avoid long explanations.
+* Be caring and conversational.
+            `,
           },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            timeout: 15000,
-          }
-        );
-
-        break; // success
-      } catch (err) {
-        attempts++;
-        console.log("Retry attempt:", attempts);
-
-        if (attempts >= 2) {
-          console.error("🔥 SAMBANOVA ERROR:");
-          console.error(err.response?.data || err.message);
-
-          // ✅ Fallback (NO 500)
-          return res.json({
-            reply:
-              "Sorry, I'm having trouble responding right now. Please try again in a moment.",
-          });
-        }
+          ...messages // ✅ FULL CHAT HISTORY HERE
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          "Content-Type": "application/json",
+        },
       }
-    }
+    );
 
-    // ✅ Safe extraction
-    let reply =
-      aiResponse?.data?.choices?.[0]?.message?.content || "No response";
+    let reply = response.data.choices[0].message.content;
 
-    // ✅ MEDICINE DETECTION (100% accurate)
-    if (reply.includes("[MEDICINE]")) {
-      reply = reply.replace("[MEDICINE]", "").trim();
+    // 🧠 Detect medicine keywords
+    const medicineKeywords = [
+      "paracetamol",
+      "ibuprofen",
+      "tablet",
+      "capsule",
+      "mg",
+      "dose",
+      "antibiotic",
+      "syrup",
+      "take ",
+      "apply ",
+      "ointment"
+    ];
 
+    const containsMedicine = medicineKeywords.some(keyword =>
+      reply.toLowerCase().includes(keyword)
+    );
+
+    // ➕ Add disclaimer ONLY if medicine is present
+    if (containsMedicine) {
       reply +=
         "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
     }
@@ -125,11 +93,10 @@ STRICT FLOW:
     res.json({ reply });
 
   } catch (err) {
-    console.error("🔥 SERVER ERROR:", err);
+    console.error(err.response?.data || err.message);
 
-    // ✅ Never send 500
-    res.json({
-      reply: "Something went wrong. Please try again shortly.",
+    res.status(500).json({
+      error: "Server error",
     });
   }
 });
@@ -137,5 +104,5 @@ STRICT FLOW:
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("✅ Server running on port", PORT);
+  console.log("Server running...");
 });
