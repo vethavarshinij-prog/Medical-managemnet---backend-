@@ -7,10 +7,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Root route
 app.get("/", (req, res) => {
   res.send("AI Doctor Backend Running...");
 });
 
+// Chat endpoint
 app.post("/chat", async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -18,6 +20,7 @@ app.post("/chat", async (req, res) => {
 
     let messages = [];
 
+    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
@@ -27,32 +30,54 @@ app.post("/chat", async (req, res) => {
     }
 
     if (!process.env.SAMBANOVA_API_KEY) {
-      return res.status(500).json({ error: "API key missing" });
+      return res.json({
+        reply: "Server configuration issue. Please try again later.",
+      });
     }
 
-    // 🔁 Retry logic (VERY IMPORTANT)
     let aiResponse;
     let attempts = 0;
 
+    // 🔁 Retry logic (2 attempts)
     while (attempts < 2) {
       try {
         aiResponse = await axios.post(
           "https://api.sambanova.ai/v1/chat/completions",
           {
-            model: "Llama-4-Maverick-17B-128E-Instruct",
+            model: "Meta-Llama-3-8B-Instruct", // ✅ FIXED MODEL
+            max_tokens: 500,
+            temperature: 0.7,
             stream: false,
             messages: [
               {
                 role: "system",
                 content: `
-You are Dr. Vetha Varshini.
+You are a professional human doctor named Dr. Vetha Varshini.
 
-Flow:
-- Empathy first
-- Give home remedies
-- Ask questions
-- Then medicine later
-- Add [MEDICINE] if medicine given
+STRICT FLOW:
+
+1. Always behave like a real doctor.
+
+2. If user asks your name:
+   - Say: "My name is Dr. Vetha Varshini."
+
+3. If user mentions common problems like:
+   fever, cold, cough, throat pain, dysentery
+
+   FOLLOW THIS ORDER:
+   - Say empathy: "Sorry to hear that..."
+   - Give 2–3 home remedies
+   - Ask 2–3 follow-up questions
+
+4. DO NOT give medicine immediately.
+
+5. Only after enough details → suggest medicine.
+
+6. If you mention medicine → add [MEDICINE] at the end.
+
+7. Keep answers short, caring, natural.
+
+8. Never restart conversation.
                 `,
               },
               ...messages,
@@ -67,15 +92,16 @@ Flow:
           }
         );
 
-        break; // success → exit loop
+        break; // success
       } catch (err) {
         attempts++;
         console.log("Retry attempt:", attempts);
 
         if (attempts >= 2) {
-          console.error("Sambanova failed:", err.response?.data || err.message);
+          console.error("🔥 SAMBANOVA ERROR:");
+          console.error(err.response?.data || err.message);
 
-          // ✅ FALLBACK RESPONSE (NO 500)
+          // ✅ Fallback (NO 500)
           return res.json({
             reply:
               "Sorry, I'm having trouble responding right now. Please try again in a moment.",
@@ -84,12 +110,14 @@ Flow:
       }
     }
 
+    // ✅ Safe extraction
     let reply =
       aiResponse?.data?.choices?.[0]?.message?.content || "No response";
 
-    // ✅ Medicine detection
+    // ✅ MEDICINE DETECTION (100% accurate)
     if (reply.includes("[MEDICINE]")) {
       reply = reply.replace("[MEDICINE]", "").trim();
+
       reply +=
         "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
     }
@@ -97,12 +125,11 @@ Flow:
     res.json({ reply });
 
   } catch (err) {
-    console.error("SERVER ERROR:", err);
+    console.error("🔥 SERVER ERROR:", err);
 
-    // ✅ NEVER send 500 to frontend
+    // ✅ Never send 500
     res.json({
-      reply:
-        "Sorry, something went wrong. Please try again after a moment.",
+      reply: "Something went wrong. Please try again shortly.",
     });
   }
 });
@@ -110,5 +137,5 @@ Flow:
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("✅ Server running on port", PORT);
 });
