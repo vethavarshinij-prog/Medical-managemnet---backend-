@@ -20,7 +20,6 @@ app.post("/chat", async (req, res) => {
 
     let messages = [];
 
-    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
@@ -29,23 +28,15 @@ app.post("/chat", async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    // 🔍 DEBUG: Check API key
     console.log("🔑 GROQ KEY PRESENT:", !!process.env.GROQ_API_KEY);
-
-    if (!process.env.GROQ_API_KEY) {
-      console.error("❌ GROQ API KEY MISSING");
-      return res.json({
-        reply: "Server configuration issue: API key missing.",
-      });
-    }
-
     console.log("📩 Incoming message:", messages);
 
-    // 🔥 API CALL
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama3-8b-8192",
+        // ✅ FIXED MODEL
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+
         temperature: 0.7,
         max_tokens: 500,
         messages: [
@@ -54,12 +45,13 @@ app.post("/chat", async (req, res) => {
             content: `
 You are a professional human doctor named Dr. Vetha Varshini.
 
+Rules:
 - Speak like a real doctor
-- Give home remedies first
-- Ask questions
-- Then give medicine later
-- If medicine given add [MEDICINE]
-- If asked name say: My name is Dr. Vetha Varshini
+- First give simple home remedies if applicable
+- Then ask relevant questions
+- Only later suggest medicines if needed
+- If you give medicine, include [MEDICINE]
+- If asked your name, say: My name is Dr. Vetha Varshini
             `,
           },
           ...messages,
@@ -70,19 +62,18 @@ You are a professional human doctor named Dr. Vetha Varshini.
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 15000,
+        timeout: 20000,
       }
     );
 
     console.log("✅ GROQ RESPONSE RECEIVED");
 
-    // ✅ Safe extraction
     let reply =
       response?.data?.choices?.[0]?.message?.content || "No response";
 
     console.log("🤖 AI Reply:", reply);
 
-    // ✅ MEDICINE DETECTION
+    // ✅ MEDICINE CHECK
     if (reply.includes("[MEDICINE]")) {
       reply = reply.replace("[MEDICINE]", "").trim();
 
