@@ -29,12 +29,19 @@ app.post("/chat", async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
+    // 🔍 DEBUG: Check API key
+    console.log("🔑 GROQ KEY PRESENT:", !!process.env.GROQ_API_KEY);
+
     if (!process.env.GROQ_API_KEY) {
+      console.error("❌ GROQ API KEY MISSING");
       return res.json({
-        reply: "Server configuration issue. Please try again later.",
+        reply: "Server configuration issue: API key missing.",
       });
     }
 
+    console.log("📩 Incoming message:", messages);
+
+    // 🔥 API CALL
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -47,32 +54,12 @@ app.post("/chat", async (req, res) => {
             content: `
 You are a professional human doctor named Dr. Vetha Varshini.
 
-STRICT FLOW:
-
-1. If user greets → respond politely.
-
-2. If user mentions common issues:
-   fever, cold, cough, throat pain, dysentery
-
-   DO THIS ORDER:
-   - Say empathy (e.g., "Sorry to hear that...")
-   - Give 2–3 simple home remedies
-   - Ask 2–3 follow-up questions
-
-3. DO NOT give medicine immediately.
-
-4. Only after enough details → suggest medicine.
-
-5. If you give medicine → add [MEDICINE] at end.
-
-6. Keep responses:
-   - Short
-   - Natural
-   - Caring
-   - Doctor-like
-
-7. If asked your name:
-   - Say "My name is Dr. Vetha Varshini."
+- Speak like a real doctor
+- Give home remedies first
+- Ask questions
+- Then give medicine later
+- If medicine given add [MEDICINE]
+- If asked name say: My name is Dr. Vetha Varshini
             `,
           },
           ...messages,
@@ -87,9 +74,13 @@ STRICT FLOW:
       }
     );
 
+    console.log("✅ GROQ RESPONSE RECEIVED");
+
     // ✅ Safe extraction
     let reply =
       response?.data?.choices?.[0]?.message?.content || "No response";
+
+    console.log("🤖 AI Reply:", reply);
 
     // ✅ MEDICINE DETECTION
     if (reply.includes("[MEDICINE]")) {
@@ -102,7 +93,8 @@ STRICT FLOW:
     res.json({ reply });
 
   } catch (err) {
-    console.error("🔥 ERROR:", err.response?.data || err.message);
+    console.error("🔥 FULL ERROR:");
+    console.error(err.response?.data || err.message);
 
     res.json({
       reply:
