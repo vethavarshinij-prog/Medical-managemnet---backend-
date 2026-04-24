@@ -20,7 +20,7 @@ app.post("/chat", async (req, res) => {
 
     let messages = [];
 
-    // ✅ Support both old & new format
+    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
@@ -29,92 +29,89 @@ app.post("/chat", async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    const response = await axios.post(
-      "https://api.sambanova.ai/v1/chat/completions",
-      {
-        model: "Llama-4-Maverick-17B-128E-Instruct",
-        stream: false,
-        messages: [
-          {
-            role: "system",
-            content: `
+    // ✅ Debug check
+    if (!process.env.SAMBANOVA_API_KEY) {
+      console.error("❌ API KEY MISSING");
+      return res.status(500).json({ error: "API key missing" });
+    }
+
+    let aiResponse;
+
+    try {
+      aiResponse = await axios.post(
+        "https://api.sambanova.ai/v1/chat/completions",
+        {
+          model: "Llama-4-Maverick-17B-128E-Instruct",
+          stream: false,
+          messages: [
+            {
+              role: "system",
+              content: `
 You are a professional human doctor named Dr. Vetha Varshini.
 
-STRICT FLOW:
+FLOW:
 
-1. Always behave like a real doctor.
+1. Always respond like a real doctor.
 
-2. If user asks your name:
-   - Say: "My name is Dr. Vetha Varshini."
-
-3. If user mentions common problems like:
+2. If user mentions:
    fever, cold, cough, throat pain, dysentery
 
-   FOLLOW THIS ORDER STRICTLY:
+   DO:
+   - Say empathy: "Sorry to hear that..."
+   - Give 2–3 home remedies
+   - Ask follow-up questions
 
-   STEP 1: Empathy
-   - "Sorry to hear that..."
+3. Do NOT give medicine immediately.
 
-   STEP 2: Home Remedies
-   - Give 2–4 simple remedies
-   - Example:
-     - Warm water
-     - Rest
-     - Steam
-     - Honey
+4. Only after enough details → suggest medicine.
 
-   STEP 3: Ask Questions
-   - Ask 2–3 relevant follow-ups
+5. If you give medicine → add [MEDICINE] at end.
 
-4. DO NOT give medicine immediately.
+6. Keep answers short, natural, caring.
 
-5. ONLY after enough details:
-   - Suggest simple medicines if needed
-
-6. If you mention ANY medicine:
-   - Add this tag at the END: [MEDICINE]
-
-7. Keep answers:
-   - Short
-   - Clear
-   - Human-like
-   - Caring
-
-8. Never randomly restart conversation.
-
-9. Do NOT say you are AI unless disclaimer is added later.
-            `,
-          },
-          ...messages,
-        ],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-          "Content-Type": "application/json",
+7. Never restart conversation.
+              `,
+            },
+            ...messages,
+          ],
         },
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 20000, // ✅ prevents hanging
+        }
+      );
+    } catch (apiError) {
+      console.error("🔥 SAMBANOVA ERROR:");
+      console.error(apiError.response?.data || apiError.message);
 
-    // ✅ Safe response handling (fixes 500 crash)
+      return res.status(500).json({
+        error: "AI service failed. Please try again.",
+      });
+    }
+
+    // ✅ Safe extraction (NO CRASH)
     let reply = "";
 
     if (
-      response.data &&
-      response.data.choices &&
-      response.data.choices.length > 0
+      aiResponse &&
+      aiResponse.data &&
+      aiResponse.data.choices &&
+      aiResponse.data.choices.length > 0
     ) {
-      reply = response.data.choices[0].message.content;
+      reply = aiResponse.data.choices[0].message?.content || "";
     } else {
+      console.error("❌ Invalid AI response:", aiResponse?.data);
+
       return res.status(500).json({
         error: "Invalid AI response",
       });
     }
 
-    // ✅ Detect medicine using tag (100% accurate)
-    const containsMedicine = reply.includes("[MEDICINE]");
-
-    if (containsMedicine) {
+    // ✅ MEDICINE DETECTION (100% accurate)
+    if (reply.includes("[MEDICINE]")) {
       reply = reply.replace("[MEDICINE]", "").trim();
 
       reply +=
@@ -124,10 +121,10 @@ STRICT FLOW:
     res.json({ reply });
 
   } catch (err) {
-    console.error("FULL ERROR:", err);
+    console.error("🔥 SERVER ERROR:", err);
 
     res.status(500).json({
-      error: "Server error",
+      error: "Server error. Please try again later.",
     });
   }
 });
@@ -135,5 +132,5 @@ STRICT FLOW:
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Server running...");
+  console.log("✅ Server running on port", PORT);
 });
