@@ -7,12 +7,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Root route
 app.get("/", (req, res) => {
   res.send("AI Doctor Backend Running...");
 });
 
-// Chat endpoint
 app.post("/chat", async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -20,7 +18,6 @@ app.post("/chat", async (req, res) => {
 
     let messages = [];
 
-    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
@@ -29,91 +26,70 @@ app.post("/chat", async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    // ✅ Debug check
     if (!process.env.SAMBANOVA_API_KEY) {
-      console.error("❌ API KEY MISSING");
       return res.status(500).json({ error: "API key missing" });
     }
 
+    // 🔁 Retry logic (VERY IMPORTANT)
     let aiResponse;
+    let attempts = 0;
 
-    try {
-      aiResponse = await axios.post(
-        "https://api.sambanova.ai/v1/chat/completions",
-        {
-          model: "Llama-4-Maverick-17B-128E-Instruct",
-          stream: false,
-          messages: [
-            {
-              role: "system",
-              content: `
-You are a professional human doctor named Dr. Vetha Varshini.
+    while (attempts < 2) {
+      try {
+        aiResponse = await axios.post(
+          "https://api.sambanova.ai/v1/chat/completions",
+          {
+            model: "Llama-4-Maverick-17B-128E-Instruct",
+            stream: false,
+            messages: [
+              {
+                role: "system",
+                content: `
+You are Dr. Vetha Varshini.
 
-FLOW:
-
-1. Always respond like a real doctor.
-
-2. If user mentions:
-   fever, cold, cough, throat pain, dysentery
-
-   DO:
-   - Say empathy: "Sorry to hear that..."
-   - Give 2–3 home remedies
-   - Ask follow-up questions
-
-3. Do NOT give medicine immediately.
-
-4. Only after enough details → suggest medicine.
-
-5. If you give medicine → add [MEDICINE] at end.
-
-6. Keep answers short, natural, caring.
-
-7. Never restart conversation.
-              `,
-            },
-            ...messages,
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-            "Content-Type": "application/json",
+Flow:
+- Empathy first
+- Give home remedies
+- Ask questions
+- Then medicine later
+- Add [MEDICINE] if medicine given
+                `,
+              },
+              ...messages,
+            ],
           },
-          timeout: 20000, // ✅ prevents hanging
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 15000,
+          }
+        );
+
+        break; // success → exit loop
+      } catch (err) {
+        attempts++;
+        console.log("Retry attempt:", attempts);
+
+        if (attempts >= 2) {
+          console.error("Sambanova failed:", err.response?.data || err.message);
+
+          // ✅ FALLBACK RESPONSE (NO 500)
+          return res.json({
+            reply:
+              "Sorry, I'm having trouble responding right now. Please try again in a moment.",
+          });
         }
-      );
-    } catch (apiError) {
-      console.error("🔥 SAMBANOVA ERROR:");
-      console.error(apiError.response?.data || apiError.message);
-
-      return res.status(500).json({
-        error: "AI service failed. Please try again.",
-      });
+      }
     }
 
-    // ✅ Safe extraction (NO CRASH)
-    let reply = "";
+    let reply =
+      aiResponse?.data?.choices?.[0]?.message?.content || "No response";
 
-    if (
-      aiResponse &&
-      aiResponse.data &&
-      aiResponse.data.choices &&
-      aiResponse.data.choices.length > 0
-    ) {
-      reply = aiResponse.data.choices[0].message?.content || "";
-    } else {
-      console.error("❌ Invalid AI response:", aiResponse?.data);
-
-      return res.status(500).json({
-        error: "Invalid AI response",
-      });
-    }
-
-    // ✅ MEDICINE DETECTION (100% accurate)
+    // ✅ Medicine detection
     if (reply.includes("[MEDICINE]")) {
       reply = reply.replace("[MEDICINE]", "").trim();
-
       reply +=
         "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
     }
@@ -121,10 +97,12 @@ FLOW:
     res.json({ reply });
 
   } catch (err) {
-    console.error("🔥 SERVER ERROR:", err);
+    console.error("SERVER ERROR:", err);
 
-    res.status(500).json({
-      error: "Server error. Please try again later.",
+    // ✅ NEVER send 500 to frontend
+    res.json({
+      reply:
+        "Sorry, something went wrong. Please try again after a moment.",
     });
   }
 });
@@ -132,5 +110,5 @@ FLOW:
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("✅ Server running on port", PORT);
+  console.log("Server running on port", PORT);
 });
