@@ -9,7 +9,7 @@ app.use(express.json());
 
 // Root route
 app.get("/", (req, res) => {
-  res.send("AI Doctor Backend Running...");
+  res.send("AI Doctor Backend Running with Groq...");
 });
 
 // Chat endpoint
@@ -18,74 +18,83 @@ app.post("/chat", async (req, res) => {
     const userMessage = req.body.message;
     const messagesFromFrontend = req.body.messages;
 
-    // 🧠 If full chat history is provided → use it
     let messages = [];
 
+    // ✅ Support both formats
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
-      // fallback (old method)
       messages = [{ role: "user", content: userMessage }];
     } else {
       return res.status(400).json({ error: "Message required" });
     }
 
+    if (!process.env.GROQ_API_KEY) {
+      return res.json({
+        reply: "Server configuration issue. Please try again later.",
+      });
+    }
+
     const response = await axios.post(
-      "https://api.sambanova.ai/v1/chat/completions",
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "Llama-4-Maverick-17B-128E-Instruct",
-        stream: false,
+        model: "llama3-8b-8192",
+        temperature: 0.7,
+        max_tokens: 500,
         messages: [
           {
             role: "system",
             content: `
-You are a professional human doctor.
+You are a professional human doctor named Dr. Vetha Varshini.
 
-Rules:
-* Speak naturally like a real doctor.
-* Keep responses short and clear.
-* Do NOT say you are an AI unless specifically required later.
-* If user gives symptoms, ask relevant follow-up questions first.
-* Do NOT give medicine immediately.
-* Only give medicine after enough details are collected.
-* Avoid long explanations.
-* Be caring and conversational.
+STRICT FLOW:
+
+1. If user greets → respond politely.
+
+2. If user mentions common issues:
+   fever, cold, cough, throat pain, dysentery
+
+   DO THIS ORDER:
+   - Say empathy (e.g., "Sorry to hear that...")
+   - Give 2–3 simple home remedies
+   - Ask 2–3 follow-up questions
+
+3. DO NOT give medicine immediately.
+
+4. Only after enough details → suggest medicine.
+
+5. If you give medicine → add [MEDICINE] at end.
+
+6. Keep responses:
+   - Short
+   - Natural
+   - Caring
+   - Doctor-like
+
+7. If asked your name:
+   - Say "My name is Dr. Vetha Varshini."
             `,
           },
-          ...messages // ✅ FULL CHAT HISTORY HERE
+          ...messages,
         ],
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 15000,
       }
     );
 
-    let reply = response.data.choices[0].message.content;
+    // ✅ Safe extraction
+    let reply =
+      response?.data?.choices?.[0]?.message?.content || "No response";
 
-    // 🧠 Detect medicine keywords
-    const medicineKeywords = [
-      "paracetamol",
-      "ibuprofen",
-      "tablet",
-      "capsule",
-      "mg",
-      "dose",
-      "antibiotic",
-      "syrup",
-      "take ",
-      "apply ",
-      "ointment"
-    ];
+    // ✅ MEDICINE DETECTION
+    if (reply.includes("[MEDICINE]")) {
+      reply = reply.replace("[MEDICINE]", "").trim();
 
-    const containsMedicine = medicineKeywords.some(keyword =>
-      reply.toLowerCase().includes(keyword)
-    );
-
-    // ➕ Add disclaimer ONLY if medicine is present
-    if (containsMedicine) {
       reply +=
         "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
     }
@@ -93,10 +102,11 @@ Rules:
     res.json({ reply });
 
   } catch (err) {
-    console.error(err.response?.data || err.message);
+    console.error("🔥 ERROR:", err.response?.data || err.message);
 
-    res.status(500).json({
-      error: "Server error",
+    res.json({
+      reply:
+        "Sorry, I'm having trouble responding right now. Please try again in a moment.",
     });
   }
 });
@@ -104,5 +114,5 @@ Rules:
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Server running...");
+  console.log("✅ Server running on port", PORT);
 });
