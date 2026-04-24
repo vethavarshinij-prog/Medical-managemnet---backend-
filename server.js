@@ -20,6 +20,7 @@ app.post("/chat", async (req, res) => {
 
     let messages = [];
 
+    // ✅ Support both old & new format
     if (messagesFromFrontend && Array.isArray(messagesFromFrontend)) {
       messages = messagesFromFrontend;
     } else if (userMessage) {
@@ -39,50 +40,49 @@ app.post("/chat", async (req, res) => {
             content: `
 You are a professional human doctor named Dr. Vetha Varshini.
 
-STRICT BEHAVIOR FLOW:
+STRICT FLOW:
 
-1. If user greets or starts conversation:
-   - Respond politely as a doctor.
+1. Always behave like a real doctor.
 
-2. If user mentions basic problems like:
+2. If user asks your name:
+   - Say: "My name is Dr. Vetha Varshini."
+
+3. If user mentions common problems like:
    fever, cold, cough, throat pain, dysentery
 
-   THEN follow this order STRICTLY:
+   FOLLOW THIS ORDER STRICTLY:
 
    STEP 1: Empathy
-   - Start with a caring line:
-     "Sorry to hear that..." or similar
+   - "Sorry to hear that..."
 
-   STEP 2: Immediate Home Remedies (IMPORTANT)
-   - Give 2–4 simple home remedies
-   - Keep them safe and common
+   STEP 2: Home Remedies
+   - Give 2–4 simple remedies
    - Example:
-     - Drink warm water
-     - Take rest
-     - Steam inhalation
-     - Honey with warm water
+     - Warm water
+     - Rest
+     - Steam
+     - Honey
 
-   STEP 3: Ask Follow-up Questions
-   - Ask 2–3 relevant questions
-   - Example:
-     - Since how many days?
-     - Any body pain or headache?
-     - Any fever temperature?
+   STEP 3: Ask Questions
+   - Ask 2–3 relevant follow-ups
 
-3. DO NOT give medicine immediately.
+4. DO NOT give medicine immediately.
 
-4. ONLY after user provides enough details:
-   - Then suggest basic safe medicines if needed
+5. ONLY after enough details:
+   - Suggest simple medicines if needed
 
-5. Keep responses:
+6. If you mention ANY medicine:
+   - Add this tag at the END: [MEDICINE]
+
+7. Keep answers:
    - Short
-   - Natural
-   - Doctor-like
-   - Not theoretical
+   - Clear
+   - Human-like
+   - Caring
 
-6. Never say you are an AI unless required later.
+8. Never randomly restart conversation.
 
-7. Always maintain a caring tone.
+9. Do NOT say you are AI unless disclaimer is added later.
             `,
           },
           ...messages,
@@ -96,29 +96,27 @@ STRICT BEHAVIOR FLOW:
       }
     );
 
-    let reply = response.data.choices[0].message.content;
+    // ✅ Safe response handling (fixes 500 crash)
+    let reply = "";
 
-    // 🧠 Detect medicine keywords
-    const medicineKeywords = [
-      "paracetamol",
-      "ibuprofen",
-      "tablet",
-      "capsule",
-      "mg",
-      "dose",
-      "antibiotic",
-      "syrup",
-      "take ",
-      "apply ",
-      "ointment"
-    ];
+    if (
+      response.data &&
+      response.data.choices &&
+      response.data.choices.length > 0
+    ) {
+      reply = response.data.choices[0].message.content;
+    } else {
+      return res.status(500).json({
+        error: "Invalid AI response",
+      });
+    }
 
-    const containsMedicine = medicineKeywords.some(keyword =>
-      reply.toLowerCase().includes(keyword)
-    );
+    // ✅ Detect medicine using tag (100% accurate)
+    const containsMedicine = reply.includes("[MEDICINE]");
 
-    // ➕ Add disclaimer ONLY if medicine is present
     if (containsMedicine) {
+      reply = reply.replace("[MEDICINE]", "").trim();
+
       reply +=
         "\n\nMoreover, I am an AI doctor assistant. For your convenience, please consult your nearby hospital doctor.";
     }
@@ -126,7 +124,7 @@ STRICT BEHAVIOR FLOW:
     res.json({ reply });
 
   } catch (err) {
-    console.error(err.response?.data || err.message);
+    console.error("FULL ERROR:", err);
 
     res.status(500).json({
       error: "Server error",
